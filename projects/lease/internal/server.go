@@ -30,6 +30,7 @@ func NewHttpServer(addr string, leaseService *LeaseService, logger *zap.SugaredL
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/create_lease", httpServer.createLease)
+	mux.HandleFunc("/check_lease", httpServer.checkCar)
 	httpServer.server.Handler = mux
 
 	return &httpServer
@@ -47,6 +48,16 @@ type createLeaseResponse struct {
 	LeaseID uint64 `json:"lease_id"`
 	From    uint64 `json:"from_day"`
 	To      uint64 `json:"to_day"`
+}
+
+type CheckCarRequest struct {
+	CarID uint64 `json:"car_id"`
+	From  uint64 `json:"from_day"`
+	To    uint64 `json:"to_day"`
+}
+
+type CheckCarResponse struct {
+	IsFree bool `json:"is_free"`
 }
 
 func (c *HttpServer) ListenAndServe() error {
@@ -141,4 +152,39 @@ func (c *HttpServer) checkAuth(token string) (UserAuthObject, error) {
 		username,
 		uint64(userID),
 	}, nil
+}
+
+func (c *HttpServer) checkCar(rw http.ResponseWriter, r *http.Request) {
+	c.logger.Infof("got request for check car")
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		rw.WriteHeader(500)
+		c.logger.Errorf("check lease error: error reading body %v", err)
+		return
+	}
+
+	var checkCarRequest CheckCarRequest
+	err = json.Unmarshal(body, &checkCarRequest)
+	if err != nil {
+		rw.WriteHeader(400)
+		return
+	}
+
+	isFree := c.leaseService.IsCarFree(checkCarRequest.CarID, checkCarRequest.From, checkCarRequest.To)
+
+	checkCarResponse := CheckCarResponse{
+		IsFree: isFree,
+	}
+
+	responseBytes, err := json.Marshal(&checkCarResponse)
+	if err != nil {
+		rw.WriteHeader(500)
+		return
+	}
+	rw.WriteHeader(200)
+	_, err = rw.Write(responseBytes)
+	if err != nil {
+		c.logger.Errorf("check book error: error writing response %v", err)
+	}
 }
