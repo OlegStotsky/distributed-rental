@@ -37,12 +37,16 @@ func NewHttpServer(addr string, leaseService *LeaseService, logger *zap.SugaredL
 
 type createLeaseRequest struct {
 	CarID uint64 `json:"car_id"`
+	From  uint64 `json:"from_day"`
+	To    uint64 `json:"to_day"`
 }
 
 type createLeaseResponse struct {
 	UserID  uint64 `json:"user_id"`
 	CarID   uint64 `json:"car_id"`
 	LeaseID uint64 `json:"lease_id"`
+	From    uint64 `json:"from_day"`
+	To      uint64 `json:"to_day"`
 }
 
 func (c *HttpServer) ListenAndServe() error {
@@ -83,7 +87,9 @@ func (c *HttpServer) createLease(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lease, err := c.leaseService.createLease(userAuth.UserID, createLeaseRequest.CarID)
+	c.logger.Infof("create lease request %+v", createLeaseRequest)
+
+	lease, err := c.leaseService.createLease(userAuth.UserID, createLeaseRequest.CarID, createLeaseRequest.From, createLeaseRequest.To)
 	if err != nil {
 		if err == leaseAlreadyExists {
 			c.logger.Errorf("create lease error: lease with car_id %v already exists", createLeaseRequest.CarID)
@@ -99,6 +105,8 @@ func (c *HttpServer) createLease(rw http.ResponseWriter, r *http.Request) {
 		UserID:  lease.UserID,
 		CarID:   lease.CarID,
 		LeaseID: lease.LeaseID,
+		From:    lease.From,
+		To:      lease.To,
 	}
 
 	responseBytes, err := json.Marshal(&createLeaseResponse)
