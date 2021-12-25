@@ -3,9 +3,9 @@ package internal
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/dgraph-io/badger/v3"
 	"go.uber.org/zap"
-	"strconv"
 )
 
 type BookingService struct {
@@ -32,6 +32,10 @@ type BookingDBModel struct {
 
 var bookingAlreadyExists = errors.New("booking already exists")
 
+func getKey(carID, from, to uint64) []byte {
+	return []byte(fmt.Sprintf("%d_%d_%d", carID, from, to))
+}
+
 func (c *BookingService) createBooking(userID uint64, carID uint64, from, to uint64) (Booking, error) {
 	tx := c.DB.NewTransaction(true)
 	defer tx.Discard()
@@ -57,7 +61,7 @@ func (c *BookingService) createBooking(userID uint64, carID uint64, from, to uin
 		To:        to,
 	}
 
-	carIDBts := []byte(strconv.FormatUint(carID, 10))
+	carIDBts := getKey(carID, from, to)
 	if c.IsCarFree(carID, from, to) {
 		userBts, err := json.Marshal(&bookingDBModel)
 		if err != nil {
@@ -76,33 +80,32 @@ func (c *BookingService) createBooking(userID uint64, carID uint64, from, to uin
 		return booking, err
 	}
 	return Booking{}, bookingAlreadyExists
-
 }
 
 func (c *BookingService) IsCarFree(carID uint64, from, to uint64) bool {
-	carIDBts := strconv.FormatUint(carID, 10)
 	tx := c.DB.NewTransaction(true)
 	defer tx.Discard()
 	it := tx.NewIterator(badger.DefaultIteratorOptions)
 	defer it.Close()
 	for it.Rewind(); it.Valid(); it.Next() {
 		item := it.Item()
-		if string(item.Key()) == carIDBts {
-			value, err := item.ValueCopy(nil)
-			if err != nil {
-				return true
-			}
-			booking := &BookingDBModel{}
-			err = json.Unmarshal(value, booking)
-			if err != nil {
-				return true
-			}
-			if booking.From >= from && booking.From <= to {
-				return false
-			}
-			if booking.To >= from && booking.To <= to {
-				return false
-			}
+		value, err := item.ValueCopy(nil)
+		if err != nil {
+			return true
+		}
+		booking := &BookingDBModel{}
+		err = json.Unmarshal(value, booking)
+		if err != nil {
+			return true
+		}
+		if booking.CarID != carID {
+			continue
+		}
+		if booking.From >= from && booking.From <= to {
+			return false
+		}
+		if booking.To >= from && booking.To <= to {
+			return false
 		}
 	}
 	return true

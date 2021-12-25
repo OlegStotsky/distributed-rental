@@ -2,6 +2,8 @@ package internal
 
 import (
 	"encoding/json"
+	"fmt"
+	"github.com/golang-jwt/jwt"
 	"go.uber.org/zap"
 	"io/ioutil"
 	"net/http"
@@ -11,10 +13,10 @@ type HttpServer struct {
 	server         *http.Server
 	bookingService *BookingService
 	logger         *zap.SugaredLogger
-	jwtSigningKey []byte
+	jwtSigningKey  []byte
 }
 
-func NewHttpServer(addr string, bookingService *BookingService, logger *zap.SugaredLogger) *HttpServer {
+func NewHttpServer(addr string, bookingService *BookingService, jwtSecret []byte, logger *zap.SugaredLogger) *HttpServer {
 	srv := &http.Server{
 		Addr: addr,
 	}
@@ -23,6 +25,7 @@ func NewHttpServer(addr string, bookingService *BookingService, logger *zap.Suga
 		server:         srv,
 		bookingService: bookingService,
 		logger:         logger,
+		jwtSigningKey:  jwtSecret,
 	}
 
 	mux := http.NewServeMux()
@@ -35,30 +38,27 @@ func NewHttpServer(addr string, bookingService *BookingService, logger *zap.Suga
 }
 
 type createBookingRequest struct {
-	UserID uint64 `json:"user_id"`
-	CarID  uint64 `json:"car_id"`
+	CarID uint64 `json:"car_id"`
 	From  uint64 `json:"from_day"`
-	To  uint64 `json:"to_day"`
+	To    uint64 `json:"to_day"`
 }
 
 type createBookingResponse struct {
-	UserID  uint64 `json:"user_id"`
-	CarID   uint64 `json:"car_id"`
+	UserID    uint64 `json:"user_id"`
+	CarID     uint64 `json:"car_id"`
 	BookingID uint64 `json:"booking_id"`
-	From  uint64 `json:"from_day"`
-	To  uint64 `json:"to_day"`
+	From      uint64 `json:"from_day"`
+	To        uint64 `json:"to_day"`
 }
 
 type checkCarRequest struct {
-	CarID  uint64 `json:"car_id"`
+	CarID uint64 `json:"car_id"`
 	From  uint64 `json:"from_day"`
-	To  uint64 `json:"to_day"`
-
+	To    uint64 `json:"to_day"`
 }
 
 type checkCarResponse struct {
-	IsFree  bool `json:"is_free"`
-
+	IsFree bool `json:"is_free"`
 }
 
 func (c *HttpServer) ListenAndServe() error {
@@ -71,6 +71,13 @@ func (c *HttpServer) Close() error {
 
 func (c *HttpServer) createBooking(rw http.ResponseWriter, r *http.Request) {
 	c.logger.Infof("got request for create booking")
+	token := r.Header.Get("X-Auth")
+	userAuth, err := c.checkAuth(token)
+	if err != nil {
+		c.logger.Errorf("auth error: %v", err)
+		http.Error(rw, err.Error(), http.StatusUnauthorized)
+		return
+	}
 
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -87,7 +94,7 @@ func (c *HttpServer) createBooking(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	booking, err := c.bookingService.createBooking(createBookingRequest.UserID, createBookingRequest.CarID, createBookingRequest.From, createBookingRequest.To)
+	booking, err := c.bookingService.createBooking(userAuth.UserID, createBookingRequest.CarID, createBookingRequest.From, createBookingRequest.To)
 	if err != nil {
 		if err == bookingAlreadyExists {
 			c.logger.Errorf("create booking error: booking with car_id %v already exists", createBookingRequest.CarID)
@@ -100,11 +107,11 @@ func (c *HttpServer) createBooking(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	createBookingResponse := createBookingResponse{
-		UserID:  booking.UserID,
-		CarID:   booking.CarID,
+		UserID:    userAuth.UserID,
+		CarID:     booking.CarID,
 		BookingID: booking.BookingID,
-		From: booking.From,
-		To: booking.To,
+		From:      booking.From,
+		To:        booking.To,
 	}
 
 	responseBytes, err := json.Marshal(&createBookingResponse)
@@ -121,6 +128,13 @@ func (c *HttpServer) createBooking(rw http.ResponseWriter, r *http.Request) {
 
 func (c *HttpServer) checkCar(rw http.ResponseWriter, r *http.Request) {
 	c.logger.Infof("got request for check car")
+	token := r.Header.Get("X-Auth")
+	_, err := c.checkAuth(token)
+	if err != nil {
+		c.logger.Errorf("auth error: %v", err)
+		http.Error(rw, err.Error(), http.StatusUnauthorized)
+		return
+	}
 
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -152,4 +166,31 @@ func (c *HttpServer) checkCar(rw http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		c.logger.Errorf("check book error: error writing response %v", err)
 	}
+}
+
+type UserAuthObject struct {
+	Username string
+	UserID   uint64
+}
+
+func (c *HttpServer) checkAuth(token string) (UserAuthObject, error) {
+	tokenObj, err := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
+		return c.jwtSigningKey, nil
+	})
+	if err != nil {
+		return UserAuthObject{}, fmt.Errorf("error casting user id from token: %w", err)
+	}
+
+	claims, ok := tokenObj.Claims.(jwt.MapClaims)
+	if !ok {
+		return UserAuthObject{}, fmt.Errorf("token %s verification error: error casting claims to map claims", token)
+	}
+	c.logger.Infof("claims %v", claims)
+	username := claims["username"].(string)
+	userID := claims["user_id"].(float64)
+
+	return UserAuthObject{
+		username,
+		uint64(userID),
+	}, nil
 }
