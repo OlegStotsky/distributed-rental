@@ -15,23 +15,22 @@ type BookingService struct {
 }
 
 type Booking struct {
-	CarID   uint64 `json:"car_id,omitempty"`
-	UserID  uint64 `json:"user_id,omitempty"`
+	CarID     uint64 `json:"car_id,omitempty"`
+	UserID    uint64 `json:"user_id,omitempty"`
 	BookingID uint64 `json:"booking_id,omitempty"`
-	From uint64 `json:"from_day,omitempty"`
-	To uint64 `json:"to_day,omitempty"`
+	From      uint64 `json:"from_day,omitempty"`
+	To        uint64 `json:"to_day,omitempty"`
 }
 
 type BookingDBModel struct {
-	CarID   uint64 `json:"car_id,omitempty"`
-	UserID  uint64 `json:"user_id,omitempty"`
+	CarID     uint64 `json:"car_id,omitempty"`
+	UserID    uint64 `json:"user_id,omitempty"`
 	BookingID uint64 `json:"booking_id,omitempty"`
-	From uint64 `json:"from_day,omitempty"`
-	To uint64 `json:"to_day,omitempty"`
+	From      uint64 `json:"from_day,omitempty"`
+	To        uint64 `json:"to_day,omitempty"`
 }
 
 var bookingAlreadyExists = errors.New("booking already exists")
-
 
 func (c *BookingService) createBooking(userID uint64, carID uint64, from, to uint64) (Booking, error) {
 	tx := c.DB.NewTransaction(true)
@@ -43,21 +42,20 @@ func (c *BookingService) createBooking(userID uint64, carID uint64, from, to uin
 	}
 
 	booking := Booking{
-		UserID:  userID,
-		CarID:   carID,
+		UserID:    userID,
+		CarID:     carID,
 		BookingID: bookingID,
-		From: from,
-		To: to,
+		From:      from,
+		To:        to,
 	}
 
 	bookingDBModel := BookingDBModel{
 		BookingID: bookingID,
-		UserID:  userID,
-		CarID:   carID,
-		From: from,
-		To: to,
+		UserID:    userID,
+		CarID:     carID,
+		From:      from,
+		To:        to,
 	}
-
 
 	carIDBts := []byte(strconv.FormatUint(carID, 10))
 	if c.IsCarFree(carID, from, to) {
@@ -81,7 +79,7 @@ func (c *BookingService) createBooking(userID uint64, carID uint64, from, to uin
 
 }
 
-func (c* BookingService) IsCarFree(carID uint64, from, to uint64) bool {
+func (c *BookingService) IsCarFree(carID uint64, from, to uint64) bool {
 	carIDBts := strconv.FormatUint(carID, 10)
 	tx := c.DB.NewTransaction(true)
 	defer tx.Discard()
